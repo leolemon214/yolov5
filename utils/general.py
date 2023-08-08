@@ -436,8 +436,11 @@ def check_file(file, suffix=''):
     # Search/download file (if necessary) and return path
     check_suffix(file, suffix)  # optional
     file = str(file)  # convert to str()
-    if os.path.isfile(file) or not file:  # exists
+    if not file:
         return file
+    elif os.path.isfile(file):  # exists
+        assert not Path(file).is_absolute(), f'Absolute path not allowed: {file}, use relative path instead'
+        return Path(file).as_posix()
     elif file.startswith(('http:/', 'https:/')):  # download
         url = file  # warning: Pathlib turns :// -> :/
         file = Path(urllib.parse.unquote(file).split('?')[0]).name  # '%2F' to '/', split https://url.com/file.txt?auth
@@ -457,7 +460,7 @@ def check_file(file, suffix=''):
             files.extend(glob.glob(str(ROOT / d / '**' / file), recursive=True))  # find file
         assert len(files), f'File not found: {file}'  # assert file was found
         assert len(files) == 1, f"Multiple files match '{file}', specify exact path: {files}"  # assert unique
-        return files[0]  # return file
+        return Path(files[0]).as_posix()  # return file
 
 
 def check_font(font=FONT, progress=False):

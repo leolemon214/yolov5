@@ -20,8 +20,19 @@ except (ImportError, AssertionError):
 def construct_dataset(clearml_info_string):
     """Load in a clearml dataset and fill the internal data_dict with its contents.
     """
-    dataset_id = clearml_info_string.replace('clearml://', '')
-    dataset = Dataset.get(dataset_id=dataset_id)
+    dataset_info = clearml_info_string.replace('clearml://', '')
+    if '/' in dataset_info and ':' in dataset_info:
+        # Specified dataset in the format `clearml://<project_name>/<dataset_name>:<dataset_version>`
+        try:
+            dataset_name, dataset_version = dataset_info.rsplit(':', 1)
+            project_name, dataset_name = dataset_name.rsplit('/', 1)
+        except ValueError:
+            raise ValueError(
+                f'Expected dataset format is `clearml://<project_name>/<dataset_name>:<dataset_version>` but got {dataset_info}')
+        dataset = Dataset.get(dataset_project=project_name, dataset_name=dataset_name, dataset_version=dataset_version)
+    else:
+        # Specified dataset in the format `clearml://<dataset_id>`
+        dataset = Dataset.get(dataset_id=dataset_info)
     dataset_root_path = Path(dataset.get_local_copy())
 
     # We'll search for the yaml file definition in the dataset
@@ -32,11 +43,11 @@ def construct_dataset(clearml_info_string):
     elif len(yaml_filenames) == 0:
         raise ValueError('No yaml definition found in dataset root path, check that there is a correct yaml file '
                          'inside the dataset root path.')
-    with open(yaml_filenames[0]) as f:
+    with open(yaml_filenames[0], encoding='utf-8') as f:
         dataset_definition = yaml.safe_load(f)
 
     assert set(dataset_definition.keys()).issuperset(
-        {'train', 'test', 'val', 'nc', 'names'}
+        {'train', 'test', 'val', 'names'}
     ), "The right keys were not found in the yaml file, make sure it at least has the following keys: ('train', 'test', 'val', 'nc', 'names')"
 
     data_dict = dict()
@@ -46,8 +57,8 @@ def construct_dataset(clearml_info_string):
         (dataset_root_path / dataset_definition['test']).resolve()) if dataset_definition['test'] else None
     data_dict['val'] = str(
         (dataset_root_path / dataset_definition['val']).resolve()) if dataset_definition['val'] else None
-    data_dict['nc'] = dataset_definition['nc']
     data_dict['names'] = dataset_definition['names']
+    data_dict['nc'] = len(data_dict['names'])
 
     return data_dict
 
@@ -98,20 +109,6 @@ class ClearmlLogger:
             # will have to be added manually!
             self.task.connect(hyp, name='Hyperparameters')
             self.task.connect(opt, name='Args')
-
-            # Make sure the code is easily remotely runnable by setting the docker image to use by the remote agent
-            self.task.set_base_docker('ultralytics/yolov5:latest',
-                                      docker_arguments='--ipc=host -e="CLEARML_AGENT_SKIP_PYTHON_ENV_INSTALL=1"',
-                                      docker_setup_bash_script='pip install clearml')
-
-            # Get ClearML Dataset Version if requested
-            if opt.data.startswith('clearml://'):
-                # data_dict should have the following keys:
-                # names, nc (number of classes), test, train, val (all three relative paths to ../datasets)
-                self.data_dict = construct_dataset(opt.data)
-                # Set data to data_dict because wandb will crash without this information and opt is the best way
-                # to give it to them
-                opt.data = self.data_dict
 
     def log_debug_samples(self, files, title='Debug Samples'):
         """

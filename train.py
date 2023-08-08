@@ -99,6 +99,18 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     data_dict = None
     if RANK in {-1, 0}:
         loggers = Loggers(save_dir, weights, opt, hyp, LOGGER)  # loggers instance
+        if loggers.clearml:
+            loggers.clearml.task.execute_remotely()
+
+            # Get ClearML Dataset Version if requested
+            from utils.loggers.clearml.clearml_utils import construct_dataset
+            if opt.data.startswith('clearml://'):
+                # data_dict should have the following keys:
+                # names, test, train, val (all three relative paths to ../datasets)
+                loggers.clearml.data_dict = construct_dataset(opt.data)
+                # Set data to data_dict because wandb will crash without this information and opt is the best way
+                # to give it to them
+                opt.data = loggers.clearml.data_dict
 
         # Register actions
         for k in methods(loggers):
@@ -111,6 +123,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
 
     # Config
     plots = not evolve and not opt.noplots  # create plots
+    if device is None:  # select device after remotely executing
+        device = select_device(opt.device, batch_size=batch_size)
     cuda = device.type != 'cpu'
     init_seeds(opt.seed + 1 + RANK, deterministic=True)
     with torch_distributed_zero_first(LOCAL_RANK):
@@ -216,14 +230,14 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     if RANK in {-1, 0}:
         val_loader = create_dataloader(val_path,
                                        imgsz,
-                                       batch_size // WORLD_SIZE * 2,
+                                       batch_size // WORLD_SIZE,
                                        gs,
                                        single_cls,
                                        hyp=hyp,
                                        cache=None if noval else opt.cache,
                                        rect=True,
                                        rank=-1,
-                                       workers=workers * 2,
+                                       workers=workers,
                                        pad=0.5,
                                        prefix=colorstr('val: '))[0]
 
@@ -357,7 +371,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             final_epoch = (epoch + 1 == epochs) or stopper.possible_stop
             if not noval or final_epoch:  # Calculate mAP
                 results, maps, _ = validate.run(data_dict,
-                                                batch_size=batch_size // WORLD_SIZE * 2,
+                                                batch_size=batch_size // WORLD_SIZE,
                                                 imgsz=imgsz,
                                                 half=amp,
                                                 model=ema.ema,
@@ -418,7 +432,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                     LOGGER.info(f'\nValidating {f}...')
                     results, _, _ = validate.run(
                         data_dict,
-                        batch_size=batch_size // WORLD_SIZE * 2,
+                        batch_size=batch_size // WORLD_SIZE,
                         imgsz=imgsz,
                         model=attempt_load(f, device).half(),
                         iou_thres=0.65 if is_coco else 0.60,  # best pycocotools at iou 0.65
@@ -519,7 +533,7 @@ def main(opt, callbacks=Callbacks()):
         opt.save_dir = str(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))
 
     # DDP mode
-    device = select_device(opt.device, batch_size=opt.batch_size)
+    device = None
     if LOCAL_RANK != -1:
         msg = 'is not compatible with YOLOv5 Multi-GPU DDP training'
         assert not opt.image_weights, f'--image-weights {msg}'
