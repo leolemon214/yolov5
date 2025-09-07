@@ -822,7 +822,12 @@ class LoadImagesAndLabels(Dataset):
             nl = len(labels)  # update after albumentations
 
             # HSV color-space
-            augment_hsv(img, hgain=hyp["hsv_h"], sgain=hyp["hsv_s"], vgain=hyp["hsv_v"])
+            if img.shape[2] > 3:
+                img_3ch = img[:, :, :3].copy()
+                augment_hsv(img_3ch, hgain=hyp["hsv_h"], sgain=hyp["hsv_s"], vgain=hyp["hsv_v"])
+                img[:, :, :3] = img_3ch
+            else:
+                augment_hsv(img, hgain=hyp["hsv_h"], sgain=hyp["hsv_s"], vgain=hyp["hsv_v"])
 
             # Flip up-down
             if random.random() < hyp["flipud"]:
