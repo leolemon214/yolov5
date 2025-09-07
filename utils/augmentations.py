@@ -148,7 +148,13 @@ def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleF
         im = cv2.resize(im, new_unpad, interpolation=cv2.INTER_LINEAR)
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
-    im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
+    h, w, c = im.shape
+    if c == 3:
+        im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
+    else:
+        pad_img = np.full((h + top + bottom, w + left + right, c), fill_value=color[0], dtype=im.dtype)
+        pad_img[top: top + h, left: left + w] = im
+        im = pad_img
     return im, ratio, (dw, dh)
 
 

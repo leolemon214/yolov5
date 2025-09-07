@@ -56,6 +56,7 @@ from utils.general import (
     xyxy2xywhn,
 )
 from utils.torch_utils import torch_distributed_zero_first
+from utils.patches import imread
 
 # Parameters
 HELP_URL = "See https://docs.ultralytics.com/yolov5/tutorials/train_custom_data"
@@ -160,6 +161,7 @@ class SmartDistributedSampler(distributed.DistributedSampler):
 def create_dataloader(
     path,
     imgsz,
+    imgch,
     batch_size,
     stride,
     single_cls=False,
@@ -184,6 +186,7 @@ def create_dataloader(
         dataset = LoadImagesAndLabels(
             path,
             imgsz,
+            imgch,
             batch_size,
             augment=augment,  # augmentation
             hyp=hyp,  # hyperparameters
@@ -544,6 +547,7 @@ class LoadImagesAndLabels(Dataset):
         self,
         path,
         img_size=640,
+        img_channels=3,
         batch_size=16,
         augment=False,
         hyp=None,
@@ -560,6 +564,7 @@ class LoadImagesAndLabels(Dataset):
     ):
         """Initializes the YOLOv5 dataset loader, handling images and their labels, caching, and preprocessing."""
         self.img_size = img_size
+        self.img_channels = img_channels
         self.augment = augment
         self.hyp = hyp
         self.image_weights = image_weights
@@ -705,7 +710,7 @@ class LoadImagesAndLabels(Dataset):
         b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
         n = min(self.n, 30)  # extrapolate from 30 random images
         for _ in range(n):
-            im = cv2.imread(random.choice(self.im_files))  # sample image
+            im = imread(random.choice(self.im_files))  # sample image
             ratio = self.img_size / max(im.shape[0], im.shape[1])  # max(h, w)  # ratio
             b += im.nbytes * ratio**2
         mem_required = b * self.n / n  # GB required to cache dataset into RAM
@@ -860,9 +865,11 @@ class LoadImagesAndLabels(Dataset):
             if fn.exists():  # load npy
                 im = np.load(fn)
             else:  # read image
-                im = cv2.imread(f)  # BGR
+                im = imread(f)  # BGR
                 assert im is not None, f"Image Not Found {f}"
-            h0, w0 = im.shape[:2]  # orig hw
+            h0, w0, c0 = im.shape[:3]  # orig hw
+            if im.shape[2] < self.img_channels:
+                im = np.concatenate([im, np.zeros((h0, w0, self.img_channels - c0), dtype=im.dtype)], axis=2)
             r = self.img_size / max(h0, w0)  # ratio
             if r != 1:  # if sizes are not equal
                 interp = cv2.INTER_LINEAR if (self.augment or r > 1) else cv2.INTER_AREA
@@ -874,7 +881,7 @@ class LoadImagesAndLabels(Dataset):
         """Saves an image to disk as an *.npy file for quicker loading, identified by index `i`."""
         f = self.npy_files[i]
         if not f.exists():
-            np.save(f.as_posix(), cv2.imread(self.im_files[i]))
+            np.save(f.as_posix(), imread(self.im_files[i]))
 
     def load_mosaic(self, index):
         """Loads a 4-image mosaic for YOLOv5, combining 1 selected and 3 random images, with labels and segments."""

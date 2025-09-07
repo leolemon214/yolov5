@@ -21,6 +21,7 @@ import random
 import subprocess
 import sys
 import time
+import warnings
 from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -100,6 +101,7 @@ LOCAL_RANK = int(os.getenv("LOCAL_RANK", -1))  # https://pytorch.org/docs/stable
 RANK = int(os.getenv("RANK", -1))
 WORLD_SIZE = int(os.getenv("WORLD_SIZE", 1))
 GIT_INFO = check_git_info()
+warnings.filterwarnings("ignore")
 
 
 def train(hyp, opt, device, callbacks):
@@ -205,6 +207,7 @@ def train(hyp, opt, device, callbacks):
         data_dict = data_dict or check_dataset(data)  # check if None
     train_path, val_path = data_dict["train"], data_dict["val"]
     nc = 1 if single_cls else int(data_dict["nc"])  # number of classes
+    ch = data_dict.get("channels", 3)
     names = {0: "item"} if single_cls and len(data_dict["names"]) != 1 else data_dict["names"]  # class names
     is_coco = isinstance(val_path, str) and val_path.endswith("coco/val2017.txt")  # COCO dataset
 
@@ -215,14 +218,14 @@ def train(hyp, opt, device, callbacks):
         with torch_distributed_zero_first(LOCAL_RANK):
             weights = attempt_download(weights)  # download if not found locally
         ckpt = torch_load(weights, map_location="cpu")  # load checkpoint to CPU to avoid CUDA memory leak
-        model = Model(cfg or ckpt["model"].yaml, ch=3, nc=nc, anchors=hyp.get("anchors")).to(device)  # create
+        model = Model(cfg or ckpt["model"].yaml, ch=ch, nc=nc, anchors=hyp.get("anchors")).to(device)  # create
         exclude = ["anchor"] if (cfg or hyp.get("anchors")) and not resume else []  # exclude keys
         csd = ckpt["model"].float().state_dict()  # checkpoint state_dict as FP32
         csd = intersect_dicts(csd, model.state_dict(), exclude=exclude)  # intersect
         model.load_state_dict(csd, strict=False)  # load
         LOGGER.info(f"Transferred {len(csd)}/{len(model.state_dict())} items from {weights}")  # report
     else:
-        model = Model(cfg, ch=3, nc=nc, anchors=hyp.get("anchors")).to(device)  # create
+        model = Model(cfg, ch=ch, nc=nc, anchors=hyp.get("anchors")).to(device)  # create
     amp = check_amp(model)  # check AMP
 
     # Freeze
@@ -287,6 +290,7 @@ def train(hyp, opt, device, callbacks):
     train_loader, dataset = create_dataloader(
         train_path,
         imgsz,
+        ch,
         batch_size // WORLD_SIZE,
         gs,
         single_cls,
@@ -311,6 +315,7 @@ def train(hyp, opt, device, callbacks):
         val_loader = create_dataloader(
             val_path,
             imgsz,
+            ch,
             batch_size // WORLD_SIZE * 2,
             gs,
             single_cls,

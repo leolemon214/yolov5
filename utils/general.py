@@ -603,7 +603,8 @@ def check_amp(model):
     f = ROOT / "data" / "images" / "bus.jpg"  # image to check
     im = f if f.exists() else "https://ultralytics.com/images/bus.jpg" if check_online() else np.ones((640, 640, 3))
     try:
-        assert amp_allclose(deepcopy(model), im) or amp_allclose(DetectMultiBackend("yolov5n.pt", device), im)
+        c = model.yaml.get("ch", 3)
+        assert (amp_allclose(deepcopy(model), im) if c == 3 else False) or amp_allclose(DetectMultiBackend("yolov5n.pt", device), im)
         LOGGER.info(f"{prefix}checks passed ✅")
         return True
     except Exception:
