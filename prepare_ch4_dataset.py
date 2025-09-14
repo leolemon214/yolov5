@@ -72,20 +72,19 @@ def copy_labels(source_labels_dir, target_labels_dir):
         shutil.copy2(label_file, target_labels_dir / label_file.name)
 
 
-def process_dataset(source_dataset_path, target_dataset_name):
+def process_dataset(source_dataset_path, target_dataset_path):
     """Process a single dataset to create 4-channel version."""
     source_images_dir = source_dataset_path / "images"
     source_masks_dir = source_dataset_path / "masks" 
     source_labels_dir = source_dataset_path / "labels"
     
     # Create target dataset directory structure
-    target_dataset_path = Path(__file__).parent / "datasets" / target_dataset_name
     target_images_dir = target_dataset_path / "images"
     target_labels_dir = target_dataset_path / "labels"
     
     target_images_dir.mkdir(parents=True, exist_ok=True)
     
-    print(f"Processing dataset: {source_dataset_path.name} -> {target_dataset_name}")
+    print(f"Processing dataset: {source_dataset_path.name} -> {target_dataset_path.name}")
     
     # Check if source directories exist
     if not source_images_dir.exists():
@@ -137,22 +136,25 @@ def process_dataset(source_dataset_path, target_dataset_name):
     print(f"4-channel dataset created: {target_dataset_path}")
 
 
-def create_dataset_yaml(dataset_name):
+def create_dataset_yaml(dataset_name, yaml_output_dir, target_dataset_path):
     """Create YAML configuration file for the dataset."""
+    # Use relative paths from the project root
+    relative_path = target_dataset_path.relative_to(Path(__file__).parent)
+    
     # Determine train/val paths based on dataset name
     if "phantom00-39" in dataset_name:
-        train_path = f"datasets/{dataset_name.replace('ch4_', 'ch4_phantom40-140')}/images"
-        val_path = f"datasets/{dataset_name}/images"
-        test_path = f"datasets/{dataset_name}/images"
+        train_path = f"{relative_path.as_posix().replace('phantom00-39', 'phantom40-140')}/images"
+        val_path = f"{relative_path.as_posix()}/images"
+        test_path = f"{relative_path.as_posix()}/images"
     elif "phantom40-140" in dataset_name:
-        train_path = f"datasets/{dataset_name}/images"
-        val_path = f"datasets/{dataset_name.replace('ch4_', 'ch4_phantom00-39')}/images"
-        test_path = f"datasets/{dataset_name.replace('ch4_', 'ch4_phantom00-39')}/images"
+        train_path = f"{relative_path.as_posix()}/images"
+        val_path = f"{relative_path.as_posix().replace('phantom40-140', 'phantom00-39')}/images"
+        test_path = f"{relative_path.as_posix().replace('phantom40-140', 'phantom00-39')}/images"
     else:
         # Default fallback
-        train_path = f"datasets/{dataset_name}/images"
-        val_path = f"datasets/{dataset_name}/images"
-        test_path = f"datasets/{dataset_name}/images"
+        train_path = f"{relative_path.as_posix()}/images"
+        val_path = f"{relative_path.as_posix()}/images"
+        test_path = f"{relative_path.as_posix()}/images"
     
     yaml_content = f"""train: {train_path}
 val: {val_path}
@@ -164,8 +166,8 @@ names:
   0: ball
 """
     
-    yaml_path = Path(__file__).parent / "data" / f"{dataset_name}.yaml"
-    yaml_path.parent.mkdir(exist_ok=True)
+    yaml_output_dir.mkdir(parents=True, exist_ok=True)
+    yaml_path = yaml_output_dir / f"{dataset_name}.yaml"
     
     with open(yaml_path, 'w') as f:
         f.write(yaml_content)
@@ -174,30 +176,52 @@ names:
 
 
 def main():
-    """Main function to process both datasets."""
-    # Define source datasets and their target names
-    datasets_to_process = [
-        ("phantom00-39", "ch4_phantom00-39"),
-        ("phantom40-140", "ch4_phantom40-140")
-    ]
+    """Main function to process datasets."""
+    import argparse
     
-    base_dir = Path(__file__).parent / "datasets"
+    parser = argparse.ArgumentParser(description='Prepare 4-channel datasets by combining RGB images with motion difference masks')
+    parser.add_argument('input_dirs', nargs='+', help='Input dataset directories to process')
+    parser.add_argument('--output-dir', default=None, 
+                       help='Output directory for 4-channel datasets (default: datasets/ in current directory)')
+    parser.add_argument('--yaml-output-dir', default=None,
+                       help='Directory to save YAML configuration files (default: data/ in current directory)')
+    
+    args = parser.parse_args()
+    
+    # Determine output directories
+    if args.output_dir:
+        output_base_dir = Path(args.output_dir)
+    else:
+        output_base_dir = Path(__file__).parent / "datasets"
+    
+    if args.yaml_output_dir:
+        yaml_output_dir = Path(args.yaml_output_dir)
+    else:
+        yaml_output_dir = Path(__file__).parent / "data"
     
     print("Starting 4-channel dataset preparation...")
     print("=" * 50)
     
-    for source_name, target_name in datasets_to_process:
-        source_path = base_dir / source_name
+    for input_dir in args.input_dirs:
+        source_path = Path(input_dir)
         
-        if source_path.exists():
-            process_dataset(source_path, target_name)
-            create_dataset_yaml(target_name)
-            print()
-        else:
+        if not source_path.exists():
             print(f"Source dataset not found: {source_path}")
+            continue
+        
+        # Generate target dataset name (add ch4_ prefix if not present)
+        target_name = source_path.name
+        if not target_name.startswith('ch4_'):
+            target_name = f"ch4_{target_name}"
+        
+        target_path = output_base_dir / target_name
+        
+        process_dataset(source_path, target_path)
+        create_dataset_yaml(target_name, yaml_output_dir, target_path)
+        print()
     
     print("4-channel dataset preparation completed!")
-    print("\nUsage:")
+    print("\nExample usage:")
     print("  python train.py --data data/ch4_phantom00-39.yaml --weights yolov5s.pt --img 640")
     print("  python detect_ch.py --weights runs/train/exp/weights/best.pt --source datasets/ch4_phantom40-140/images/")
 

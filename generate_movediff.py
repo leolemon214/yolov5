@@ -142,24 +142,65 @@ def process_dataset(dataset_path, brightness_gain=3.0):
 
 
 def main():
-    """Main function to process both datasets."""
-    # Define dataset paths
-    base_dir = Path(__file__).parent / "datasets"
+    """Main function to process datasets."""
+    import argparse
     
-    datasets = [
-        base_dir / "phantom00-39",
-        base_dir / "phantom40-140"
-    ]
+    parser = argparse.ArgumentParser(description='Generate motion difference images from dataset sequences')
+    parser.add_argument('input_dirs', nargs='+', help='Input dataset directories to process')
+    parser.add_argument('--output-base-dir', default=None, 
+                       help='Base directory for output datasets (default: same as input directories)')
+    parser.add_argument('--brightness-gain', type=float, default=3.0, 
+                       help='Brightness gain factor for motion difference images (default: 3.0)')
+    
+    args = parser.parse_args()
     
     print("Starting motion difference generation...")
     print("=" * 50)
     
-    for dataset_path in datasets:
-        if dataset_path.exists():
-            process_dataset(dataset_path, brightness_gain=3.0)
-            print()
+    for input_dir in args.input_dirs:
+        input_path = Path(input_dir)
+        
+        if not input_path.exists():
+            print(f"Dataset not found: {input_path}")
+            continue
+            
+        # Determine output directory
+        if args.output_base_dir:
+            output_base = Path(args.output_base_dir)
+            output_path = output_base / input_path.name
+            
+            # Create output directory structure if needed
+            output_images_dir = output_path / "images"
+            output_labels_dir = output_path / "labels"
+            
+            # Copy images and labels from input if output is different
+            if output_path != input_path:
+                output_path.mkdir(parents=True, exist_ok=True)
+                
+                # Copy images directory
+                input_images_dir = input_path / "images"
+                if input_images_dir.exists():
+                    if output_images_dir.exists():
+                        import shutil
+                        shutil.rmtree(output_images_dir)
+                    import shutil
+                    shutil.copytree(input_images_dir, output_images_dir)
+                
+                # Copy labels directory if it exists
+                input_labels_dir = input_path / "labels"
+                if input_labels_dir.exists():
+                    if output_labels_dir.exists():
+                        import shutil
+                        shutil.rmtree(output_labels_dir)
+                    import shutil
+                    shutil.copytree(input_labels_dir, output_labels_dir)
+            
+            dataset_path = output_path
         else:
-            print(f"Dataset not found: {dataset_path}")
+            dataset_path = input_path
+        
+        process_dataset(dataset_path, brightness_gain=args.brightness_gain)
+        print()
     
     print("Motion difference generation completed!")
 
