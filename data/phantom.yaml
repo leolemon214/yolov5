@@ -1,0 +1,6 @@
+train: datasets/phantom40-140/images
+val: datasets/phantom00-39/images
+test: datasets/phantom00-39/images
+
+names:
+  0: ball
